@@ -12209,6 +12209,58 @@ def test_copy_object_ifnonematch_failed():
     body = _get_body(response)
     assert body == 'bar'
 
+def test_copy_object_ifmodifiedsince_good():
+    bucket_name = get_new_bucket()
+    client = get_client()
+    client.put_object(Bucket=bucket_name, Key='foo', Body='bar')
+
+    response = client.copy_object(Bucket=bucket_name, CopySource=bucket_name+'/foo', Key='bar', CopySourceIfModifiedSince='Sat, 29 Oct 1994 19:43:31 GMT')
+    response = client.get_object(Bucket=bucket_name, Key='bar')
+    body = _get_body(response)
+    assert body == 'bar'
+
+@pytest.mark.fails_on_rgw
+def test_copy_object_ifmodifiedsince_failed():
+    bucket_name = get_new_bucket()
+    client = get_client()
+    client.put_object(Bucket=bucket_name, Key='foo', Body='bar')
+    response = client.get_object(Bucket=bucket_name, Key='foo')
+    last_modified = str(response['LastModified'])
+
+    last_modified = last_modified.split('+')[0]
+    mtime = datetime.datetime.strptime(last_modified, '%Y-%m-%d %H:%M:%S')
+
+    after = mtime + datetime.timedelta(seconds=1)
+    after_str = time.strftime("%a, %d %b %Y %H:%M:%S GMT", after.timetuple())
+
+    time.sleep(1)
+
+
+    e = assert_raises(ClientError, client.copy_object, Bucket=bucket_name, CopySource=bucket_name+'/foo', CopySourceIfModifiedSince=after_str, Key='bar')
+    status, error_code = _get_status_and_error_code(e.response)
+    assert status == 412
+    assert error_code == 'PreconditionFailed'
+
+def test_copy_object_ifunmodifiedsince_good():
+    bucket_name = get_new_bucket()
+    client = get_client()
+    client.put_object(Bucket=bucket_name, Key='foo', Body='bar')
+
+    e = assert_raises(ClientError, client.copy_object, Bucket=bucket_name, CopySource=bucket_name+'/foo', Key='bar', CopySourceIfUnmodifiedSince='Sat, 29 Oct 1994 19:43:31 GMT')
+    status, error_code = _get_status_and_error_code(e.response)
+    assert status == 412
+    assert error_code == 'PreconditionFailed'
+
+def test_copy_object_ifunmodifiedsince_failed():
+    bucket_name = get_new_bucket()
+    client = get_client()
+    client.put_object(Bucket=bucket_name, Key='foo', Body='bar')
+
+    response = client.copy_object(Bucket=bucket_name, CopySource=bucket_name+'/foo', Key='bar', CopySourceIfUnmodifiedSince='Sat, 29 Oct 2100 19:43:31 GMT')
+    response = client.get_object(Bucket=bucket_name, Key='bar')
+    body = _get_body(response)
+    assert body == 'bar'
+
 # TODO: results in a 404 instead of 400 on the RGW
 @pytest.mark.fails_on_rgw
 def test_object_read_unreadable():
